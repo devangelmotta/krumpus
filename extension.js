@@ -77,11 +77,13 @@ async function connectToRoom(roomCode) {
       vscode.window.activeTextEditor.options.readOnly = true;
       typingStatusBarItem.text = "A is typing...";
       typingStatusBarItem.show();
+      outputChannel.appendLine('A is typing...');
       clearTimeout(typingTimeout);
     } else if (!payload.payload.typing) {
       typingTimeout = setTimeout(() => {
         vscode.window.activeTextEditor.options.readOnly = false;
         typingStatusBarItem.hide();
+        outputChannel.appendLine('A stopped typing.');
       }, 1000);
     }
   });
@@ -94,6 +96,12 @@ async function connectToRoom(roomCode) {
   });
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(event => {
+    // Ignorar cambios en el canal de salida y otros documentos que no sean el activo principal
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document !== event.document) {
+      return;
+    }
+
     if (!isProgrammaticChange && channel) {
       const edit = event.contentChanges[0];
 
