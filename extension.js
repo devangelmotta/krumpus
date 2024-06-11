@@ -10,7 +10,6 @@ let typingTimeout;  // Timeout para desbloquear la escritura
 let typingStatusBarItem;  // Elemento de la barra de estado para mostrar el mensaje de escritura
 
 const outputChannel = vscode.window.createOutputChannel('Pair Programming');
-outputChannel.show();
 
 function activate(context) {
   // Crear el StatusBarItem
@@ -30,7 +29,7 @@ function activate(context) {
       vscode.window.showInformationMessage(`Room created. Share this code to join: ${roomCode}`);
       outputChannel.appendLine(`Room code: ${roomCode}`);
 
-      await connectToRoom(roomCode);
+      await connectToRoom(context, roomCode);
     } else if (selection === 'Join a Room') {
       const roomCode = await vscode.window.showInputBox({
         prompt: 'Enter the room code',
@@ -38,7 +37,8 @@ function activate(context) {
       });
 
       if (roomCode) {
-        await connectToRoom(roomCode);
+        await connectToRoom(context, roomCode);
+        outputChannel.show();
       }
     }
   });
@@ -46,7 +46,7 @@ function activate(context) {
   context.subscriptions.push(startPairProgramming);
 }
 
-async function connectToRoom(roomCode) {
+async function connectToRoom(context, roomCode) {
   const channel = supabase.channel(`pair_programming_${roomCode}`, {
     config: {
       broadcast: {
@@ -77,13 +77,11 @@ async function connectToRoom(roomCode) {
       vscode.window.activeTextEditor.options.readOnly = true;
       typingStatusBarItem.text = "A is typing...";
       typingStatusBarItem.show();
-      outputChannel.appendLine('A is typing...');
       clearTimeout(typingTimeout);
     } else if (!payload.payload.typing) {
       typingTimeout = setTimeout(() => {
         vscode.window.activeTextEditor.options.readOnly = false;
         typingStatusBarItem.hide();
-        outputChannel.appendLine('A stopped typing.');
       }, 1000);
     }
   });
