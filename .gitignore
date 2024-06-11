@@ -1,0 +1,8 @@
+node_modules
+.vscode
+extension_2.js
+README.md
+CHANGELOG.md
+vsc-extension-quickstart.md
+yarn.lock
+config.js
