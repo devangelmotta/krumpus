@@ -25,7 +25,7 @@ function activate(context) {
     if (selection === 'Create a Room') {
       const roomCode = generateRoomCode();
       vscode.window.showInformationMessage(`Room created. Share this code to join: ${roomCode}`);
-      await connectToRoom(roomCode);
+      await connectToRoom(context, roomCode);
     } else if (selection === 'Join a Room') {
       const roomCode = await vscode.window.showInputBox({
         prompt: 'Enter the room code',
@@ -33,7 +33,7 @@ function activate(context) {
       });
 
       if (roomCode) {
-        await connectToRoom(roomCode);
+        await connectToRoom(context, roomCode);
       }
     }
   });
@@ -41,7 +41,7 @@ function activate(context) {
   context.subscriptions.push(startPairProgramming);
 }
 
-async function connectToRoom(roomCode) {
+async function connectToRoom(context, roomCode) {
   const channel = supabase.channel(`pair_programming_${roomCode}`, {
     config: {
       broadcast: {
