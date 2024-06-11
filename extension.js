@@ -89,7 +89,7 @@ async function connectToRoom(context, roomCode) {
   await channel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       vscode.window.showInformationMessage(`Connected to the pair programming room: ${roomCode}`);
-      outputChannel.appendLine(`Connected to the pair programming room: ${roomCode}`);
+      //outputChannel.appendLine(`Connected to the pair programming room: ${roomCode}`);
     }
   });
 
