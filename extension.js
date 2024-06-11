@@ -92,9 +92,9 @@ async function connectToRoom(context, roomCode) {
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(event => {
     // Ignorar cambios en documentos que no sean el editor activo principal
     const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document !== event.document) {
-      return;
-    }
+    // if (!editor || editor.document !== event.document) {
+    //   return;
+    // }
 
     if (!isProgrammaticChange && channel) {
       const edit = event.contentChanges[0];
