@@ -87,11 +87,11 @@ async function connectToRoom(context, roomCode) {
     }
   });
 
-  const documentChangeListener = vscode.workspace.onDidChangeTextDocument(event => {
+  const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
     const editor = vscode.window.activeTextEditor;
 
     if (!isProgrammaticChange && channel) {
-      const edit = event.contentChanges[0];
+      const edit = contentChanges[0];
 
       // Enviar evento de "user_typing"
       if (!isUserTyping) {
