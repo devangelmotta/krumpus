@@ -89,7 +89,6 @@ async function connectToRoom(context, roomCode) {
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
     const editor = vscode.window.activeTextEditor;
-
     if (!isProgrammaticChange && channel) {
       const edit = contentChanges[0];
 
