@@ -88,14 +88,20 @@ async function connectToRoom(context, roomCode) {
   });
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(event => {
-    // Ignorar cambios en documentos que no sean el editor activo principal
     const editor = vscode.window.activeTextEditor;
-    // if (!editor || editor.document !== event.document) {
-    //   return;
-    // }
 
     if (!isProgrammaticChange && channel) {
-      const edit = event.contentChanges[0];
+      const edits = event.contentChanges.map(edit => ({
+        start: {
+          line: edit.range.start.line,
+          character: edit.range.start.character
+        },
+        end: {
+          line: edit.range.end.line,
+          character: edit.range.end.character
+        },
+        text: edit.text
+      }));
 
       // Enviar evento de "user_typing"
       if (!isUserTyping) {
@@ -125,17 +131,7 @@ async function connectToRoom(context, roomCode) {
       channel.send({
         type: 'broadcast',
         event: 'code_change',
-        payload: {
-          start: {
-            line: edit.range.start.line,
-            character: edit.range.start.character
-          },
-          end: {
-            line: edit.range.end.line,
-            character: edit.range.end.character
-          },
-          text: edit.text
-        }
+        payload: edits
       });
     }
   });
