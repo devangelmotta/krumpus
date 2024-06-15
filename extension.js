@@ -1,6 +1,6 @@
 const vscode = require('vscode');
 const { createClient } = require('@supabase/supabase-js');
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config')
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -52,15 +52,17 @@ async function connectToRoom(context, roomCode) {
 
   // Suscribirse al canal
   channel.on('broadcast', { event: 'code_change' }, (payload) => {
-    const edit = payload.payload;
+    const edits = payload.payload;
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       isProgrammaticChange = true;  // Marcar el inicio de una edición programática
       editor.edit(editBuilder => {
-        editBuilder.replace(new vscode.Range(
-          new vscode.Position(edit.start.line, edit.start.character),
-          new vscode.Position(edit.end.line, edit.end.character)
-        ), edit.text);
+        edits.forEach(edit => {
+          editBuilder.replace(new vscode.Range(
+            new vscode.Position(edit.start.line, edit.start.character),
+            new vscode.Position(edit.end.line, edit.end.character)
+          ), edit.text);
+        });
       }).then(() => {
         isProgrammaticChange = false;  // Marcar el final de una edición programática
       });
@@ -87,11 +89,15 @@ async function connectToRoom(context, roomCode) {
     }
   });
 
+  let changeBuffer = [];
+  let bufferTimeout;
+
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(event => {
     const editor = vscode.window.activeTextEditor;
 
     if (!isProgrammaticChange && channel) {
-      const edits = event.contentChanges.map(edit => ({
+      const edit = event.contentChanges[0];
+      changeBuffer.push({
         start: {
           line: edit.range.start.line,
           character: edit.range.start.character
@@ -101,9 +107,8 @@ async function connectToRoom(context, roomCode) {
           character: edit.range.end.character
         },
         text: edit.text
-      }));
+      });
 
-      // Enviar evento de "user_typing"
       if (!isUserTyping) {
         isUserTyping = true;
         channel.send({
@@ -127,12 +132,15 @@ async function connectToRoom(context, roomCode) {
         });
       }, 1000);
 
-      // Enviar evento de "code_change"
-      channel.send({
-        type: 'broadcast',
-        event: 'code_change',
-        payload: edits
-      });
+      clearTimeout(bufferTimeout);
+      bufferTimeout = setTimeout(() => {
+        channel.send({
+          type: 'broadcast',
+          event: 'code_change',
+          payload: changeBuffer
+        });
+        changeBuffer = [];
+      }, 200);
     }
   });
 
