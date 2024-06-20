@@ -1,6 +1,6 @@
 const vscode = require('vscode');
 const { createClient } = require('@supabase/supabase-js');
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config')
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -8,6 +8,7 @@ let isProgrammaticChange = false;  // Variable de control global
 let isUserTyping = false;  // Indica si el usuario local está escribiendo
 let typingTimeout;  // Timeout para desbloquear la escritura
 let typingStatusBarItem;  // Elemento de la barra de estado para mostrar el mensaje de escritura
+let pendingChanges = [];  // Lista para almacenar los cambios pendientes
 
 function activate(context) {
   // Crear el StatusBarItem
@@ -87,10 +88,13 @@ async function connectToRoom(context, roomCode) {
     }
   });
 
-  const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
+  const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({ contentChanges }) => {
     const editor = vscode.window.activeTextEditor;
     if (!isProgrammaticChange && channel) {
       const edit = contentChanges[0];
+
+      // Agregar el cambio a la lista de cambios pendientes
+      pendingChanges.push(edit);
 
       // Enviar evento de "user_typing"
       if (!isUserTyping) {
@@ -136,6 +140,34 @@ async function connectToRoom(context, roomCode) {
   });
 
   context.subscriptions.push(documentChangeListener);
+
+  const selectionChangeListener = vscode.window.onDidChangeTextEditorSelection(event => {
+    if (pendingChanges.length > 0) {
+      // Procesar los cambios pendientes
+      pendingChanges.forEach(edit => {
+        channel.send({
+          type: 'broadcast',
+          event: 'code_change',
+          payload: {
+            start: {
+              line: edit.range.start.line,
+              character: edit.range.start.character
+            },
+            end: {
+              line: edit.range.end.line,
+              character: edit.range.end.character
+            },
+            text: edit.text
+          }
+        });
+      });
+
+      // Limpiar la lista de cambios pendientes
+      pendingChanges = [];
+    }
+  });
+
+  context.subscriptions.push(selectionChangeListener);
 }
 
 function generateRoomCode() {
@@ -150,6 +182,7 @@ module.exports = {
   activate,
   deactivate
 };
+
 
 // const vscode = require('vscode');
 // const { createClient } = require('@supabase/supabase-js');
