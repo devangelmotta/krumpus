@@ -8,7 +8,7 @@ let isProgrammaticChange = false;  // Variable de control global
 let isUserTyping = false;  // Indica si el usuario local está escribiendo
 let typingTimeout;  // Timeout para desbloquear la escritura
 let typingStatusBarItem;  // Elemento de la barra de estado para mostrar el mensaje de escritura
-let pendingChanges = [];  // Lista para almacenar los cambios pendientes
+let isAutocompleteInProgress = false;  // Marcar si un autocomplete está en progreso
 
 function activate(context) {
   // Crear el StatusBarItem
@@ -40,6 +40,38 @@ function activate(context) {
   });
 
   context.subscriptions.push(startPairProgramming);
+
+  vscode.window.onDidChangeTextEditorSelection(event => {
+    if (isAutocompleteInProgress) {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        const document = editor.document;
+        const changes = event.selections;
+        changes.forEach(selection => {
+          const text = document.getText(selection);
+          if (text) {
+            // Enviar evento de "code_change" después del autocompletado
+            channel.send({
+              type: 'broadcast',
+              event: 'code_change',
+              payload: {
+                start: {
+                  line: selection.start.line,
+                  character: selection.start.character
+                },
+                end: {
+                  line: selection.end.line,
+                  character: selection.end.character
+                },
+                text: text
+              }
+            });
+          }
+        });
+      }
+      isAutocompleteInProgress = false;
+    }
+  });
 }
 
 async function connectToRoom(context, roomCode) {
@@ -93,8 +125,10 @@ async function connectToRoom(context, roomCode) {
     if (!isProgrammaticChange && channel) {
       const edit = contentChanges[0];
 
-      // Agregar el cambio a la lista de cambios pendientes
-      pendingChanges.push(edit);
+      // Detectar si es un autocompletado en progreso
+      if (edit.text.includes(' ')) {  // Puedes ajustar esta condición según sea necesario
+        isAutocompleteInProgress = true;
+      }
 
       // Enviar evento de "user_typing"
       if (!isUserTyping) {
@@ -120,31 +154,8 @@ async function connectToRoom(context, roomCode) {
         });
       }, 1000);
 
-      // Enviar evento de "code_change"
-      channel.send({
-        type: 'broadcast',
-        event: 'code_change',
-        payload: {
-          start: {
-            line: edit.range.start.line,
-            character: edit.range.start.character
-          },
-          end: {
-            line: edit.range.end.line,
-            character: edit.range.end.character
-          },
-          text: edit.text
-        }
-      });
-    }
-  });
-
-  context.subscriptions.push(documentChangeListener);
-
-  const selectionChangeListener = vscode.window.onDidChangeTextEditorSelection(event => {
-    if (pendingChanges.length > 0) {
-      // Procesar los cambios pendientes
-      pendingChanges.forEach(edit => {
+      if (!isAutocompleteInProgress) {
+        // Enviar evento de "code_change" inmediatamente si no es un autocompletado
         channel.send({
           type: 'broadcast',
           event: 'code_change',
@@ -160,14 +171,11 @@ async function connectToRoom(context, roomCode) {
             text: edit.text
           }
         });
-      });
-
-      // Limpiar la lista de cambios pendientes
-      pendingChanges = [];
+      }
     }
   });
 
-  context.subscriptions.push(selectionChangeListener);
+  context.subscriptions.push(documentChangeListener);
 }
 
 function generateRoomCode() {
