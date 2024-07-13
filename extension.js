@@ -3,13 +3,14 @@ const { createClient } = require('@supabase/supabase-js');
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
 
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
+let context; 
 let isProgrammaticChange = false;
 let isUserTyping = false;
 let typingTimeout;
 let typingStatusBarItem;
 
-function activate(context) {
+function activate(_context) {
+    context = _context
     initializeStatusBar(context);
     registerCommands(context);
 }
