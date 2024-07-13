@@ -68,7 +68,6 @@ async function connectToRoom(context, roomCode) {
   });
 
   channel.on('broadcast', { event: 'user_typing' }, (payload) => {
-    return;
     if (payload.payload.typing && !isUserTyping) {
       vscode.window.activeTextEditor.options.readOnly = true;
       typingStatusBarItem.text = "A is typing...";
@@ -94,7 +93,7 @@ async function connectToRoom(context, roomCode) {
       const edit = contentChanges[0];
 
       // Enviar evento de "user_typing"
-      if (!isUserTyping) {
+      if (false) {
         isUserTyping = true;
         channel.send({
           type: 'broadcast',
@@ -108,13 +107,13 @@ async function connectToRoom(context, roomCode) {
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {
         isUserTyping = false;
-        channel.send({
-          type: 'broadcast',
-          event: 'user_typing',
-          payload: {
-            typing: false
-          }
-        });
+        // channel.send({
+        //   type: 'broadcast',
+        //   event: 'user_typing',
+        //   payload: {
+        //     typing: false
+        //   }
+        // });
       }, 1000);
 
       // Enviar evento de "code_change"
