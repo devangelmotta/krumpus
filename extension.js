@@ -68,6 +68,7 @@ async function connectToRoom(context, roomCode) {
   });
 
   channel.on('broadcast', { event: 'user_typing' }, (payload) => {
+    return;
     if (payload.payload.typing && !isUserTyping) {
       vscode.window.activeTextEditor.options.readOnly = true;
       typingStatusBarItem.text = "A is typing...";
