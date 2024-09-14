@@ -1,22 +1,21 @@
 const vscode = require('vscode');
 const { createClient } = require('@supabase/supabase-js');
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config')
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let isProgrammaticChange = false;  // Variable de control global
-let isUserTyping = false;  // Indica si el usuario local está escribiendo
-let typingTimeout;  // Timeout para desbloquear la escritura
-let typingStatusBarItem;  // Elemento de la barra de estado para mostrar el mensaje de escritura
+let isProgrammaticChange = false;
+let isUserTyping = false;
+let typingTimeout;
+let typingStatusBarItem;
+let previousReadOnlyState = false;  // Para restaurar el estado de readonly
 
 function activate(context) {
-  // Crear el StatusBarItem
   typingStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   typingStatusBarItem.hide();
   context.subscriptions.push(typingStatusBarItem);
 
   const startPairProgramming = vscode.commands.registerCommand('extension.startPairProgramming', async () => {
-    // Mostrar opciones para crear o unirse a una sala
     const options = ['Create a Room', 'Join a Room'];
     const selection = await vscode.window.showQuickPick(options, {
       placeHolder: 'Select an option'
@@ -42,85 +41,23 @@ function activate(context) {
 }
 
 async function connectToRoom(context, roomCode) {
-  const channel = supabase.channel(`pair_programming_${roomCode}`, {
-    config: {
-      broadcast: {
-        ack: true,
-      },
-    },
-  });
+  try {
+    const channel = supabase.channel(`pair_programming_${roomCode}`, {
+      config: { broadcast: { ack: true } }
+    });
 
-  // Suscribirse al canal
-  channel.on('broadcast', { event: 'code_change' }, (payload) => {
-    const edit = payload.payload;
-    const editor = vscode.window.activeTextEditor;
-    if (editor) {
-      isProgrammaticChange = true;  // Marcar el inicio de una edición programática
-      editor.edit(editBuilder => {
-        editBuilder.replace(new vscode.Range(
-          new vscode.Position(edit.start.line, edit.start.character),
-          new vscode.Position(edit.end.line, edit.end.character)
-        ), edit.text);
-      }).then(() => {
-        isProgrammaticChange = false;  // Marcar el final de una edición programática
-      });
-    }
-  });
-
-  channel.on('broadcast', { event: 'user_typing' }, (payload) => {
-    if (payload.payload.typing && !isUserTyping) {
-      vscode.window.activeTextEditor.options.readOnly = true;
-      typingStatusBarItem.text = "A is typing...";
-      typingStatusBarItem.show();
-      clearTimeout(typingTimeout);
-    } else if (!payload.payload.typing) {
-      typingTimeout = setTimeout(() => {
-        vscode.window.activeTextEditor.options.readOnly = false;
-        typingStatusBarItem.hide();
-      }, 1000);
-    }
-  });
-
-  await channel.subscribe((status) => {
-    if (status === 'SUBSCRIBED') {
-      vscode.window.showInformationMessage(`Connected to the pair programming room: ${roomCode}`);
-    }
-  });
-
-  const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
-    const editor = vscode.window.activeTextEditor;
-    if (!isProgrammaticChange && channel) {
-      const edit = contentChanges[0];
-
-      // Enviar evento de "user_typing"
-      if (false) {
-        isUserTyping = true;
-        channel.send({
-          type: 'broadcast',
-          event: 'user_typing',
-          payload: {
-            typing: true
-          }
-        });
+    await channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        vscode.window.showInformationMessage(`Connected to room: ${roomCode}`);
+      } else {
+        vscode.window.showErrorMessage('Failed to connect to the room. Please try again.');
       }
+    });
 
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        isUserTyping = false;
-        // channel.send({
-        //   type: 'broadcast',
-        //   event: 'user_typing',
-        //   payload: {
-        //     typing: false
-        //   }
-        // });
-      }, 1000);
-
-      // Enviar evento de "code_change"
-      channel.send({
-        type: 'broadcast',
-        event: 'code_change',
-        payload: {
+    const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
+      const editor = vscode.window.activeTextEditor;
+      if (!isProgrammaticChange && channel) {
+        let edits = contentChanges.map(edit => ({
           start: {
             line: edit.range.start.line,
             character: edit.range.start.character
@@ -130,12 +67,61 @@ async function connectToRoom(context, roomCode) {
             character: edit.range.end.character
           },
           text: edit.text
-        }
-      });
-    }
-  });
+        }));
 
-  context.subscriptions.push(documentChangeListener);
+        channel.send({
+          type: 'broadcast',
+          event: 'code_change',
+          payload: edits
+        });
+
+        if (!isUserTyping) {
+          isUserTyping = true;
+          channel.send({
+            type: 'broadcast',
+            event: 'user_typing',
+            payload: {
+              typing: true
+            }
+          });
+        }
+
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          isUserTyping = false;
+          channel.send({
+            type: 'broadcast',
+            event: 'user_typing',
+            payload: {
+              typing: false
+            }
+          });
+        }, 1000);
+      }
+    });
+
+    context.subscriptions.push(documentChangeListener);
+
+    channel.on('broadcast', { event: 'user_typing' }, (payload) => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        if (payload.payload.typing && !isUserTyping) {
+          previousReadOnlyState = editor.options.readOnly;
+          editor.options.readOnly = true;
+          typingStatusBarItem.text = "A user is typing...";
+          typingStatusBarItem.show();
+          clearTimeout(typingTimeout);
+        } else if (!payload.payload.typing) {
+          typingTimeout = setTimeout(() => {
+            editor.options.readOnly = previousReadOnlyState;
+            typingStatusBarItem.hide();
+          }, 1000);
+        }
+      }
+    });
+  } catch (error) {
+    vscode.window.showErrorMessage(`Error connecting to room: ${error.message}`);
+  }
 }
 
 function generateRoomCode() {
@@ -143,7 +129,9 @@ function generateRoomCode() {
 }
 
 function deactivate() {
-  // Aquí no necesitamos cerrar explícitamente la conexión de Supabase
+  if (supabase) {
+    supabase.removeAllChannels();
+  }
 }
 
 module.exports = {
