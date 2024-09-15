@@ -56,20 +56,29 @@ async function connectToRoom(context, roomCode) {
 
   // Suscribirse al canal y escuchar cambios
   channel.on('broadcast', { event: 'code_change' }, (payload) => {
-    const edit = payload.payload;
+    const changes = payload.payload;  // Ahora asumimos que es un array de cambios
     const editor = vscode.window.activeTextEditor;
+    
     if (editor) {
       isProgrammaticChange = true;  // Marcar el inicio de una edición programática
+      
       editor.edit(editBuilder => {
-        editBuilder.replace(new vscode.Range(
-          new vscode.Position(edit.start.line, edit.start.character),
-          new vscode.Position(edit.end.line, edit.end.character)
-        ), edit.text);
+        // Recorrer cada cambio en el array y aplicarlo
+        changes.forEach(change => {
+          editBuilder.replace(
+            new vscode.Range(
+              new vscode.Position(change.start.line, change.start.character),
+              new vscode.Position(change.end.line, change.end.character)
+            ),
+            change.text
+          );
+        });
       }).then(() => {
         isProgrammaticChange = false;  // Marcar el final de una edición programática
       });
     }
   });
+  
 
   await channel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
