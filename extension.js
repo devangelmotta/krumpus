@@ -1,21 +1,24 @@
 const vscode = require('vscode');
 const { createClient } = require('@supabase/supabase-js');
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config')
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let isProgrammaticChange = false;
-let isUserTyping = false;
-let typingTimeout;
-let typingStatusBarItem;
-let previousReadOnlyState = false;  // Para restaurar el estado de readonly
+let isProgrammaticChange = false;  // Variable de control global
+
+// Función debounce para reducir el número de actualizaciones enviadas al servidor
+function debounce(func, wait) {
+  let timeout;
+  return function (...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), wait);
+  };
+}
 
 function activate(context) {
-  typingStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  typingStatusBarItem.hide();
-  context.subscriptions.push(typingStatusBarItem);
-
   const startPairProgramming = vscode.commands.registerCommand('extension.startPairProgramming', async () => {
+    // Mostrar opciones para crear o unirse a una sala
     const options = ['Create a Room', 'Join a Room'];
     const selection = await vscode.window.showQuickPick(options, {
       placeHolder: 'Select an option'
@@ -41,87 +44,67 @@ function activate(context) {
 }
 
 async function connectToRoom(context, roomCode) {
-  try {
-    const channel = supabase.channel(`pair_programming_${roomCode}`, {
-      config: { broadcast: { ack: true } }
-    });
+  const channel = supabase.channel(`pair_programming_${roomCode}`, {
+    config: {
+      broadcast: {
+        ack: true,
+      },
+    },
+  });
 
-    await channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        vscode.window.showInformationMessage(`Connected to room: ${roomCode}`);
-      } else {
-        vscode.window.showErrorMessage('Failed to connect to the room. Please try again.');
+  // Suscribirse al canal y escuchar cambios
+  channel.on('broadcast', { event: 'code_change' }, (payload) => {
+    const edit = payload.payload;
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      isProgrammaticChange = true;  // Marcar el inicio de una edición programática
+      editor.edit(editBuilder => {
+        editBuilder.replace(new vscode.Range(
+          new vscode.Position(edit.start.line, edit.start.character),
+          new vscode.Position(edit.end.line, edit.end.character)
+        ), edit.text);
+      }).then(() => {
+        isProgrammaticChange = false;  // Marcar el final de una edición programática
+      });
+    }
+  });
+
+  await channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      vscode.window.showInformationMessage(`Connected to the pair programming room: ${roomCode}`);
+    }
+  });
+
+  // Nueva función para enviar cambios con debounce
+  const sendCodeChange = debounce((edit) => {
+    channel.send({
+      type: 'broadcast',
+      event: 'code_change',
+      payload: {
+        start: {
+          line: edit.range.start.line,
+          character: edit.range.start.character
+        },
+        end: {
+          line: edit.range.end.line,
+          character: edit.range.end.character
+        },
+        text: edit.text
       }
     });
+  }, 300);  // 300ms de retraso
 
-    const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
-      const editor = vscode.window.activeTextEditor;
-      if (!isProgrammaticChange && channel) {
-        let edits = contentChanges.map(edit => ({
-          start: {
-            line: edit.range.start.line,
-            character: edit.range.start.character
-          },
-          end: {
-            line: edit.range.end.line,
-            character: edit.range.end.character
-          },
-          text: edit.text
-        }));
-
-        channel.send({
-          type: 'broadcast',
-          event: 'code_change',
-          payload: edits
-        });
-
-        if (!isUserTyping) {
-          isUserTyping = true;
-          channel.send({
-            type: 'broadcast',
-            event: 'user_typing',
-            payload: {
-              typing: true
-            }
-          });
-        }
-
-        clearTimeout(typingTimeout);
-        typingTimeout = setTimeout(() => {
-          isUserTyping = false;
-          channel.send({
-            type: 'broadcast',
-            event: 'user_typing',
-            payload: {
-              typing: false
-            }
-          });
-        }, 1000);
+  const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({ contentChanges }) => {
+    const editor = vscode.window.activeTextEditor;
+    if (!isProgrammaticChange && channel) {
+      for (let index = 0; index < contentChanges.length; index++) {
+        let edit = contentChanges[index];
+        sendCodeChange(edit);  // Ahora se usa la función con debounce
       }
-    });
+    }
+  });
 
-    context.subscriptions.push(documentChangeListener);
-
-    channel.on('broadcast', { event: 'user_typing' }, (payload) => {
-      const editor = vscode.window.activeTextEditor;
-      if (editor) {
-        if (payload.payload.typing && !isUserTyping) {
-          previousReadOnlyState = editor.options.readOnly;
-          editor.options.readOnly = true;
-          typingStatusBarItem.text = "A user is typing...";
-          typingStatusBarItem.show();
-          clearTimeout(typingTimeout);
-        } else if (!payload.payload.typing) {
-          typingTimeout = setTimeout(() => {
-            editor.options.readOnly = previousReadOnlyState;
-            typingStatusBarItem.hide();
-          }, 1000);
-        }
-      }
-    });
-  } catch (error) {
-    vscode.window.showErrorMessage(`Error connecting to room: ${error.message}`);
-  }
+  context.subscriptions.push(documentChangeListener);
 }
 
 function generateRoomCode() {
@@ -129,9 +112,7 @@ function generateRoomCode() {
 }
 
 function deactivate() {
-  if (supabase) {
-    supabase.removeAllChannels();
-  }
+  // Aquí no necesitamos cerrar explícitamente la conexión de Supabase
 }
 
 module.exports = {
