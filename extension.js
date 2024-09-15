@@ -6,7 +6,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let isProgrammaticChange = false;  // Variable de control global
 let changeBuffer = [];  // Buffer para almacenar cambios
-let bufferTimer = null;  // Temporizador del buffer
+//let bufferTimer = null;  // Temporizador del buffer
 
 // Función debounce para reducir el número de actualizaciones enviadas al servidor
 function debounce(func, wait) {
