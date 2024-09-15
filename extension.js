@@ -5,6 +5,8 @@ const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config')
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let isProgrammaticChange = false;  // Variable de control global
+let changeBuffer = [];  // Buffer para almacenar cambios
+let bufferTimer = null;  // Temporizador del buffer
 
 // Función debounce para reducir el número de actualizaciones enviadas al servidor
 function debounce(func, wait) {
@@ -75,12 +77,10 @@ async function connectToRoom(context, roomCode) {
     }
   });
 
-  // Nueva función para enviar cambios con debounce
-  const sendCodeChange = debounce((edit) => {
-    channel.send({
-      type: 'broadcast',
-      event: 'code_change',
-      payload: {
+  // Nueva función para enviar el buffer de cambios
+  const sendBufferedChanges = () => {
+    if (changeBuffer.length > 0) {
+      const batchedChanges = changeBuffer.map(edit => ({
         start: {
           line: edit.range.start.line,
           character: edit.range.start.character
@@ -90,17 +90,31 @@ async function connectToRoom(context, roomCode) {
           character: edit.range.end.character
         },
         text: edit.text
-      }
-    });
-  }, 300);  // 300ms de retraso
+      }));
+
+      channel.send({
+        type: 'broadcast',
+        event: 'code_change',
+        payload: batchedChanges
+      });
+
+      changeBuffer = [];  // Limpiar el buffer después de enviar
+    }
+  };
+
+  // Debounce para enviar el buffer después de 300ms de inactividad
+  const sendChangesWithDebounce = debounce(sendBufferedChanges, 300);
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({ contentChanges }) => {
     const editor = vscode.window.activeTextEditor;
     if (!isProgrammaticChange && channel) {
-      for (let index = 0; index < contentChanges.length; index++) {
-        let edit = contentChanges[index];
-        sendCodeChange(edit);  // Ahora se usa la función con debounce
-      }
+      // Agregar los cambios al buffer
+      contentChanges.forEach(change => {
+        changeBuffer.push(change);
+      });
+
+      // Reiniciar el temporizador de debounce
+      sendChangesWithDebounce();
     }
   });
 
