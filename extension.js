@@ -9,6 +9,7 @@ let currentChannel = null;  // Variable para guardar el canal activo de la sala
 let typingTimeout = null;  // Para controlar cuándo se detiene la notificación de escritura
 let isEditorLocked = false;  // Para bloquear la edición cuando el otro usuario está escribiendo
 let currentUsername = "UserA"; // Nombre del usuario actual (cambiar según sea necesario)
+let typingStatusBar;  // Variable para la barra de estado que muestra el estado de "typing"
 
 function activate(context) {
 
@@ -48,9 +49,9 @@ function activate(context) {
   statusBarItem.show();  // Mostrar el botón en la barra de estado
   context.subscriptions.push(statusBarItem, startPairProgramming, hardSyncCommand);
 
-  // Barra de estado para mostrar el estado de "escritura"
-  const typingStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  typingStatusBar.show();
+  // Crear y mostrar la barra de estado para el estado de "escritura"
+  typingStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  typingStatusBar.hide();  // Ocultar inicialmente
   context.subscriptions.push(typingStatusBar);
 }
 
@@ -113,14 +114,13 @@ async function connectToRoom(context, roomCode) {
   // Manejo del evento de escritura "typing"
   currentChannel.on('broadcast', { event: 'typing' }, (payload) => {
     const { username, isTyping } = payload.payload;
-    const typingStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 
     if (isTyping) {
       typingStatusBar.text = `$(pencil) ${username} is typing...`;
-      typingStatusBar.show();
+      typingStatusBar.show();  // Mostrar la barra de estado con el mensaje
       isEditorLocked = true;  // Bloquear la edición
     } else {
-      typingStatusBar.hide();
+      typingStatusBar.hide();  // Ocultar la barra de estado cuando el usuario deja de escribir
       isEditorLocked = false;  // Desbloquear la edición
     }
   });
@@ -133,7 +133,8 @@ async function connectToRoom(context, roomCode) {
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
     const editor = vscode.window.activeTextEditor;
-    if (!isProgrammaticChange && currentChannel) {
+    
+    if (!isEditorLocked && !isProgrammaticChange && currentChannel) {  // Revisar si el editor no está bloqueado
       const changes = contentChanges.map(edit => ({
         start: {
           line: edit.range.start.line,
