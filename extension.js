@@ -6,6 +6,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let isProgrammaticChange = false;  // Variable de control global para evitar loops
 let currentChannel = null;  // Variable para guardar el canal activo de la sala
+let typingTimeout = null;  // Para controlar cuándo se detiene la notificación de escritura
+let isEditorLocked = false;  // Para bloquear la edición cuando el otro usuario está escribiendo
+let currentUsername = "UserA"; // Nombre del usuario actual (cambiar según sea necesario)
 
 function activate(context) {
 
@@ -44,6 +47,11 @@ function activate(context) {
   statusBarItem.tooltip = 'Perform a hard sync of the current editor';
   statusBarItem.show();  // Mostrar el botón en la barra de estado
   context.subscriptions.push(statusBarItem, startPairProgramming, hardSyncCommand);
+
+  // Barra de estado para mostrar el estado de "escritura"
+  const typingStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  typingStatusBar.show();
+  context.subscriptions.push(typingStatusBar);
 }
 
 async function connectToRoom(context, roomCode) {
@@ -102,6 +110,21 @@ async function connectToRoom(context, roomCode) {
     }
   });
 
+  // Manejo del evento de escritura "typing"
+  currentChannel.on('broadcast', { event: 'typing' }, (payload) => {
+    const { username, isTyping } = payload.payload;
+    const typingStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+
+    if (isTyping) {
+      typingStatusBar.text = `$(pencil) ${username} is typing...`;
+      typingStatusBar.show();
+      isEditorLocked = true;  // Bloquear la edición
+    } else {
+      typingStatusBar.hide();
+      isEditorLocked = false;  // Desbloquear la edición
+    }
+  });
+
   await currentChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       vscode.window.showInformationMessage(`Connected to the pair programming room: ${roomCode}`);
@@ -122,17 +145,42 @@ async function connectToRoom(context, roomCode) {
         },
         text: edit.text
       }));
-      
+
       // Enviar todos los cambios como un array
       currentChannel.send({
         type: 'broadcast',
         event: 'code_change',
         payload: changes
       });
+
+      // Notificar que el usuario está escribiendo
+      notifyTyping(true);
+
+      // Reiniciar el temporizador para detener la notificación de escritura
+      if (typingTimeout) {
+        clearTimeout(typingTimeout);
+      }
+      typingTimeout = setTimeout(() => {
+        notifyTyping(false);  // Dejar de notificar después de un tiempo sin cambios
+      }, 2000);
     }
   });
 
   context.subscriptions.push(documentChangeListener);
+}
+
+// Función para notificar sobre el estado de escritura
+function notifyTyping(isTyping) {
+  if (currentChannel) {
+    currentChannel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        username: currentUsername,  // Usuario que está escribiendo
+        isTyping
+      }
+    });
+  }
 }
 
 async function hardSync() {
