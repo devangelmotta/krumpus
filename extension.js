@@ -5,12 +5,13 @@ const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let isProgrammaticChange = false;  // Variable de control global para evitar loops
+let currentChannel = null;  // Variable para guardar el canal activo de la sala
 
 function activate(context) {
 
   const startPairProgramming = vscode.commands.registerCommand('extension.startPairProgramming', async () => {
-    // Mostrar opciones para crear, unirse o sincronización dura
-    const options = ['Create a Room', 'Join a Room', 'Hard Sync'];
+    // Mostrar opciones para crear o unirse a una sala
+    const options = ['Create a Room', 'Join a Room'];
     const selection = await vscode.window.showQuickPick(options, {
       placeHolder: 'Select an option'
     });
@@ -28,16 +29,25 @@ function activate(context) {
       if (roomCode) {
         await connectToRoom(context, roomCode);
       }
-    } else if (selection === 'Hard Sync') {
-      await hardSync();
     }
   });
 
-  context.subscriptions.push(startPairProgramming);
+  // Registrar el comando de sincronización dura
+  const hardSyncCommand = vscode.commands.registerCommand('extension.hardSync', async () => {
+    await hardSync();
+  });
+
+  // Crear un botón en la barra de estado para "Hard Sync"
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.command = 'extension.hardSync';  // Asociar el comando de sincronización dura
+  statusBarItem.text = '$(sync) Hard Sync';  // Texto del botón con un ícono
+  statusBarItem.tooltip = 'Perform a hard sync of the current editor';
+  statusBarItem.show();  // Mostrar el botón en la barra de estado
+  context.subscriptions.push(statusBarItem, startPairProgramming, hardSyncCommand);
 }
 
 async function connectToRoom(context, roomCode) {
-  const channel = supabase.channel(`pair_programming_${roomCode}`, {
+  currentChannel = supabase.channel(`pair_programming_${roomCode}`, {
     config: {
       broadcast: {
         ack: true,
@@ -46,7 +56,7 @@ async function connectToRoom(context, roomCode) {
   });
 
   // Suscribirse al canal
-  channel.on('broadcast', { event: 'code_change' }, (payload) => {
+  currentChannel.on('broadcast', { event: 'code_change' }, (payload) => {
     const changes = payload.payload;  // Asumimos que es un array de cambios
     const editor = vscode.window.activeTextEditor;
     
@@ -71,7 +81,7 @@ async function connectToRoom(context, roomCode) {
   });
 
   // Manejo del evento de sincronización dura (hard_sync)
-  channel.on('broadcast', { event: 'hard_sync' }, (payload) => {
+  currentChannel.on('broadcast', { event: 'hard_sync' }, (payload) => {
     const { content } = payload.payload;  // Todo el contenido del archivo
     const editor = vscode.window.activeTextEditor;
 
@@ -92,7 +102,7 @@ async function connectToRoom(context, roomCode) {
     }
   });
 
-  await channel.subscribe((status) => {
+  await currentChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       vscode.window.showInformationMessage(`Connected to the pair programming room: ${roomCode}`);
     }
@@ -100,7 +110,7 @@ async function connectToRoom(context, roomCode) {
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(({contentChanges}) => {
     const editor = vscode.window.activeTextEditor;
-    if (!isProgrammaticChange && channel) {
+    if (!isProgrammaticChange && currentChannel) {
       const changes = contentChanges.map(edit => ({
         start: {
           line: edit.range.start.line,
@@ -114,7 +124,7 @@ async function connectToRoom(context, roomCode) {
       }));
       
       // Enviar todos los cambios como un array
-      channel.send({
+      currentChannel.send({
         type: 'broadcast',
         event: 'code_change',
         payload: changes
@@ -132,36 +142,23 @@ async function hardSync() {
     return;
   }
 
-  const content = editor.document.getText();  // Obtener todo el contenido del editor
-  const roomCode = await vscode.window.showInputBox({
-    prompt: 'Enter the room code for hard sync',
-    validateInput: input => (input.length === 6 && /^\d+$/.test(input)) ? null : 'Invalid room code'
-  });
-
-  if (roomCode) {
-    const channel = supabase.channel(`pair_programming_${roomCode}`, {
-      config: {
-        broadcast: {
-          ack: true,
-        },
-      },
-    });
-
-    await channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        vscode.window.showInformationMessage(`Performing hard sync with room: ${roomCode}`);
-
-        // Enviar el contenido completo del editor en una sincronización dura
-        channel.send({
-          type: 'broadcast',
-          event: 'hard_sync',
-          payload: {
-            content
-          }
-        });
-      }
-    });
+  if (!currentChannel) {
+    vscode.window.showErrorMessage('No active room found for hard sync.');
+    return;
   }
+
+  const content = editor.document.getText();  // Obtener todo el contenido del editor
+
+  vscode.window.showInformationMessage(`Performing hard sync with the current room`);
+
+  // Enviar el contenido completo del editor en una sincronización dura
+  currentChannel.send({
+    type: 'broadcast',
+    event: 'hard_sync',
+    payload: {
+      content
+    }
+  });
 }
 
 function generateRoomCode() {
