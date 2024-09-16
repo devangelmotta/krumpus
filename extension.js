@@ -166,6 +166,7 @@ async function connectToRoom(context, roomCode) {
       }
       typingTimeout = setTimeout(() => {
         notifyTyping(false);  // Dejar de notificar después de un tiempo sin cambios
+        vscode.window.activeTextEditor.options.readOnly = false;
       }, 2000);
     }
   });
@@ -175,6 +176,7 @@ async function connectToRoom(context, roomCode) {
 
 // Función para notificar sobre el estado de escritura
 function notifyTyping(isTyping) {
+  vscode.window.activeTextEditor.options.readOnly = true;
   if (currentChannel) {
     currentChannel.send({
       type: 'broadcast',
