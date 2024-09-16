@@ -1,5 +1,6 @@
 const vscode = require('vscode');
 const { createClient } = require('@supabase/supabase-js');
+const os = require('os');  // Importar el módulo de Node.js para obtener el nombre de usuario del sistema
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -8,8 +9,10 @@ let isProgrammaticChange = false;  // Variable de control global para evitar loo
 let currentChannel = null;  // Variable para guardar el canal activo de la sala
 let typingTimeout = null;  // Para controlar cuándo se detiene la notificación de escritura
 let isEditorLocked = false;  // Para bloquear la edición cuando el otro usuario está escribiendo
-let currentUsername = "UserA"; // Nombre del usuario actual (cambiar según sea necesario)
 let typingStatusBar;  // Variable para la barra de estado que muestra el estado de "typing"
+
+// Obtener el nombre de usuario del sistema
+let currentUsername = os.userInfo().username;
 
 function activate(context) {
 
